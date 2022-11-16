@@ -13,10 +13,10 @@ Files
 Instructions
 ------------
 
-You can open the c2p file using the [[https://www.capture.se/][Capture]] software which has a free to download demo.
+You can open the c2p file using the [Capture](https://www.capture.se/) software which has a free to download demo.
 I'm using the 2019 version but the show file should open in the newer version just fine.
 
-You can open the shw file using [[https://chamsyslighting.com/products/magicq][MagicQ]] which also offers a free demo version.
+You can open the shw file using [MagicQ](https://chamsyslighting.com/products/magicq) which also offers a free demo version.
 
 If you're confused how to use them both have wonderful video tutorial series and extensive manuals available.
 I'm happy to answer show file related questions and will try to add an FAQ here as people have them.
@@ -26,7 +26,7 @@ FAQ
 
 ### How do I get MagicQ to output to Capture?
 
-There is a tutorial available on [[https://www.capture.se/Portals/0/DemoPacks/ChamSys_Instructions.pdf][using Capture with MagicQ]].
+There is a tutorial available on [using Capture with MagicQ](https://www.capture.se/Portals/0/DemoPacks/ChamSys_Instructions.pdf).
 The show uses the first 8 universes so be sure to enable them.
 
 ### How do I get to all the different windows you were using, I only have one monitor?
