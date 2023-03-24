@@ -1,86 +1,127 @@
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_till},
-    character::complete::{alpha1, digit1, hex_digit1, line_ending, not_line_ending},
+    bytes::complete::{tag, escaped, take_till},
+    character::complete::{digit1, hex_digit1, line_ending, none_of, char},
     combinator::map_res,
     multi::many1,
-    sequence::{delimited, preceded, tuple},
+    sequence::{delimited, tuple},
     IResult,
 };
+use std::fmt::{self, Display, Formatter};
+
+// Define the CsvValue enum
+#[derive(Debug)]
+enum CsvValue {
+    Integer(i64),
+    Float(f64),
+    String(String),
+    Hex(u64),
+}
+
+impl Display for CsvValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            CsvValue::Integer(i) => write!(f, "{}", i),
+            CsvValue::Float(fl) => write!(f, "{}", fl),
+            CsvValue::String(s) => write!(f, "\"{}\"", s),
+            CsvValue::Hex(h) => write!(f, "0x{:X}", h),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum DefinitionIdentifier {
+    Unknown(String)
+}
+
+fn parse_definition_identifier(input: &str) -> IResult<&str, DefinitionIdentifier> {
+    println!("parse_definition_identifier: {}", input);
+    let (input, parsed_string) = take_till(|c| c == ',' || c == '\n' || c == ';')(input)?;
+    Ok((input, DefinitionIdentifier::Unknown(parsed_string.to_string())))
+}
 
 // Define the integer parser
-fn parse_integer(input: &str) -> IResult<&str, i64> {
-    map_res(digit1, str::parse::<i64>)(input)
+fn parse_integer(input: &str) -> IResult<&str, CsvValue> {
+    println!("parse_integer: {}", input);
+    map_res(digit1, |s: &str| s.parse::<i64>().map(CsvValue::Integer))(input)
 }
 
 // Define the string parser
-fn parse_string(input: &str) -> IResult<&str, String> {
-    delimited(tag("\""), take_till(|c| c == '\"'), tag("\""))(input)
+fn parse_string(input: &str) -> IResult<&str, CsvValue> {
+    println!("parse_string: {}", input);
+    let (input, parsed_string) = delimited(
+        char('\"'),
+        escaped(none_of("\""), '\\', char('\"')),
+        char('\"'),
+    )(input)?;
+
+    Ok((input, CsvValue::String(parsed_string.to_string())))
 }
 
 // Define the floating-point parser
-fn parse_float(input: &str) -> IResult<&str, f64> {
+fn parse_float(input: &str) -> IResult<&str, CsvValue> {
+    println!("parse_float: {}", input);
     map_res(
         tuple((
             digit1,
             tag("."),
             digit1
         )),
-        |(int_part, _, frac_part)| -> Result<f64, std::num::ParseFloatError> {
-            format!("{}.{}", int_part, frac_part).parse::<f64>()
+        |(int_part, _, frac_part)| -> Result<CsvValue, std::num::ParseFloatError> {
+            println!("{}.{}", int_part, frac_part);
+            format!("{}.{}", int_part, frac_part)
+                .parse::<f64>()
+                .map(CsvValue::Float)
         },
     )(input)
 }
 
 // Define the hexadecimal parser
-fn parse_hex(input: &str) -> IResult<&str, u64> {
-    map_res(preceded(tag("0x"), hex_digit1), |s: &str| u64::from_str_radix(s, 16))(input)
+fn parse_hex(input: &str) -> IResult<&str, CsvValue> {
+    println!("parse_hex: {}", input);
+    map_res(
+        hex_digit1,
+        |parsed_hex: &str| -> Result<CsvValue, std::num::ParseIntError> {
+            u64::from_str_radix(parsed_hex, 16).map(CsvValue::Hex)
+        },
+    )(input)
 }
 
 // Define the CSV field parser
-fn csv_field(input: &str) -> IResult<&str, String> {
-    let (input, field) = alt((
-        map_res(parse_integer, |i: i64| i.to_string()),
-        parse_string,
-        map_res(parse_float, |f: f64| f.to_string()),
-        map_res(parse_hex, |h: u64| format!("0x{:X}", h)),
-        take_till(|c| c == ',' || c == '\n' || c == ';'),
-    ))(input)?;
+fn csv_field(input: &str) -> IResult<&str, CsvValue> {
+    println!("csv_field: {}", input);
+    let (input, field) = alt((parse_string, parse_float, parse_hex))(input)?;
     Ok((input, field))
 }
 
 // Define the CSV row parser
-fn csv_row(input: &str) -> IResult<&str, Vec<String>> {
+fn csv_row(input: &str) -> IResult<&str, Vec<CsvValue>> {
+    println!("csv_row: {}", input);
     let (input, row) = many1(delimited(tag(""), csv_field, alt((tag(","), line_ending))))(input)?;
     Ok((input, row))
 }
 
 // Define the section parser
-fn section_parser(input: &str) -> IResult<&str, Vec<Vec<String>>> {
-    let (input, first_field) = alpha1(input)?;
-    let (input, _) = tag(" ")(input)?;
-    let (input, mut section_content) = many1(csv_row)(input)?;
+fn section_parser(input: &str) -> IResult<&str, Vec<Vec<CsvValue>>> {
+    println!("section_parser");
+    let (input, definition_identifier) = parse_definition_identifier(input)?;
+    let (input, _) = tag(",")(input)?;
+    println!("Content: {:?}", definition_identifier);
+    let (input, section_content) = many1(csv_row)(input)?;
+    println!("Content: {:?}", section_content);
+    println!("Input: {}", input);
     let (input, _) = tag(";")(input)?;
-
-    section_content[0].insert(0, first_field.to_string());
 
     Ok((input, section_content))
 }
 
 fn main() {
-    let input = "A id,name,age
-                 1,\"John\",0x1E
-                 2,\"Jane\",28;
-                 B title,year,rating
-                 \"The Matrix\",1999,8.7
-                 \"Inception\",2010,8.8;";
+    let input = "A,\"Hello world\",0001,0.05,;";
 
-    let mut remaining_input = input;
-
-    while let Ok((input, section_content)) = section_parser(remaining_input) {
-        for record in section_content {
-            println!("{:?}", record);
-        }
-       
+    let result = section_parser(input);
+    match result {
+        Ok((_, parsed_string)) => println!("Parsed string: {:?}", parsed_string),
+        Err(e) => println!("Error: {:?}", e),
     }
+
 }
