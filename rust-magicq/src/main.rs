@@ -7,7 +7,7 @@ use nom::{
     error::convert_error,
     Finish,
 };
-use itertools::Itertools;
+use std::collections::HashMap;
 use magicq::showfile_parser;
 
 fn main() {
@@ -37,9 +37,12 @@ fn main() {
         }
     };
 
-    let res = showfile.get_sections().into_iter().unique_by(|s| s.get_identifier().clone());
-    for section in res {
-        println!("{:?}", section.get_identifier());
+    let res = showfile.get_sections().into_iter().fold(HashMap::new(), |mut acc, item| {
+        *acc.entry(item.get_identifier()).or_insert(0) += 1;
+        acc
+    });
+    for counts in res {
+        println!("{:?}", counts);
     }
 
 }
