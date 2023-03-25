@@ -9,8 +9,8 @@ use nom::{
     combinator::{peek, eof, map, map_res, rest},
     multi::{many0, many1, many_till},
     sequence::{terminated, delimited, tuple, preceded},
-    error::{VerboseError, context},
-    IResult, number::streaming::double, Parser,
+    error::{VerboseError, context, convert_error},
+    IResult, number::streaming::double, Parser, Finish,
 };
 
 #[derive(Debug)]
@@ -327,7 +327,7 @@ fn section_parser(input: &str) -> IResult<&str, Section, VerboseError<&str>> {
     )(input)
 }
 
-pub fn showfile_parser(input: &str) -> IResult<&str, Showfile, VerboseError<&str>> {
+fn showfile_parser(input: &str) -> IResult<&str, Showfile, VerboseError<&str>> {
     context(
         "Showfile",
         map(
@@ -344,7 +344,7 @@ pub fn showfile_parser(input: &str) -> IResult<&str, Showfile, VerboseError<&str
     )(input)
 }
 
-pub fn showfile_writer(showfile: Showfile) -> String {
+fn showfile_writer(showfile: &Showfile) -> String {
     let line_return = showfile.get_line_return();
     let mut sb = String::new();
 
@@ -380,4 +380,18 @@ pub fn showfile_writer(showfile: Showfile) -> String {
     }
 
     sb
+}
+
+impl Showfile {
+    pub fn parse(input: &str) -> Result<Showfile, String> {
+        let result = showfile_parser(input).finish();
+        match result {
+            Ok((_, s)) => Ok(s),
+            Err(e) => Err(convert_error(input, e)),
+        }
+    }
+
+    pub fn write(&self) -> String {
+        showfile_writer(self)
+    }
 }

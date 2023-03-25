@@ -3,12 +3,8 @@ use std::{
     fs,
     process,
 };
-use nom::{
-    error::convert_error,
-    Finish,
-};
 use std::collections::HashMap;
-use magicq::showfile_parser;
+use magicq::Showfile;
 
 fn main() {
      let args: Vec<String> = env::args().collect();
@@ -27,14 +23,10 @@ fn main() {
         }
     };
 
-    let result = showfile_parser(&input).finish();
-    let showfile = match result {
-        Ok((_, parsed_string)) => parsed_string,
-        Err(e) => {
-            eprintln!("Error: {}", convert_error(input.as_str(), e));
-            process::exit(1);
-        }
-    };
+    let showfile = Showfile::parse(&input).unwrap_or_else(|e| {
+        eprintln!("Error: {}", e);
+        process::exit(1);
+    });
 
     let res = showfile.get_sections().into_iter().fold(HashMap::new(), |mut acc, item| {
         *acc.entry(item.get_identifier()).or_insert(0) += 1;

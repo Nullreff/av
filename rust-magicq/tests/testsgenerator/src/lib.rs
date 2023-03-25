@@ -33,16 +33,14 @@ pub fn generate_tests(input: TokenStream) -> TokenStream {
             fn #test_name() {
                 // Read in a showfile, check we parsed it then write it back out
                 let input = std::fs::read_to_string(&#file_path).unwrap();
-                let parse_result = showfile_parser(&input).finish();
 
-                let showfile = match parse_result {
-                    Ok((_, parsed_string)) => parsed_string,
-                    Err(e) => panic!("Error: {}", convert_error(input.as_str(), e)),
-                };
+                let showfile = Showfile::parse(&input).unwrap_or_else(|e|
+                    panic!("\n{}", e)
+                );
 
-                let written_result = showfile_writer(showfile);
+                let result = showfile.write();
 
-                assert_eq!(input, written_result);
+                assert_eq!(input, result);
             }
         }
     });
