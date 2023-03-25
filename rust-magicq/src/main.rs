@@ -6,31 +6,30 @@ use std::{
 };
 use nom::{
     branch::alt,
-    bytes::complete::{tag, escaped, take_till},
-    character::complete::{digit1, hex_digit1, line_ending, none_of, char},
-    combinator::{eof, map, map_res},
-    multi::{many0, many1, separated_list1, many_till},
-    sequence::{delimited, tuple, self},
-    error::{convert_error, VerboseError, context},
-    IResult, Finish, InputTake,
+    bytes::complete::{tag, escaped},
+    character::complete::{digit1, hex_digit1, line_ending, none_of, char, not_line_ending, alphanumeric1},
+    combinator::{peek, eof, map, map_res},
+    multi::{many0, many1, separated_list0, separated_list1, many_till},
+    sequence::{terminated, delimited, tuple, self},
+    error::{convert_error, VerboseError, context, ParseError},
+    IResult, Finish, number::streaming::double, Parser, Offset, Slice,
+    lib::std::ops::RangeTo, InputTake, Compare, InputLength, InputIter,
 };
 
 // Define the CsvValue enum
 #[derive(Debug)]
-enum CsvValue {
-    Integer(i64),
+enum Value {
     Float(f64),
     String(String),
     Hex(u64),
 }
 
-impl Display for CsvValue {
+impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            CsvValue::Integer(i) => write!(f, "{}", i),
-            CsvValue::Float(fl) => write!(f, "{}", fl),
-            CsvValue::String(s) => write!(f, "\"{}\"", s),
-            CsvValue::Hex(h) => write!(f, "0x{:X}", h),
+            Value::Float(fl) => write!(f, "{}", fl),
+            Value::String(s) => write!(f, "\"{}\"", s),
+            Value::Hex(h) => write!(f, "0x{:X}", h),
         }
     }
 }
@@ -43,7 +42,7 @@ enum SectionIdentifier {
 #[derive(Debug)]
 struct  Section {
     identifier: SectionIdentifier,
-    data: Vec<Vec<CsvValue>>,
+    data: Vec<Vec<Value>>,
     line_endings: usize,
 }
 
@@ -59,7 +58,7 @@ fn parse_header(input: &str) -> IResult<&str, String, VerboseError<&str>> {
         map(
             delimited(
                 tag("\\ "),
-                take_till(|c| c == '\n'),
+                not_line_ending,
                 line_ending,
             ),
             |s: &str| s.to_string(),
@@ -71,81 +70,85 @@ fn parse_section_identifier(input: &str) -> IResult<&str, SectionIdentifier, Ver
     context(
         "Section Identifier",
         map(
-            take_till(|c| c == ',' || c == '\n' || c == ';'),
+            alphanumeric1,
             |s: &str| SectionIdentifier::Unknown(s.to_string()),
         )
     )(input)
 }
 
-// Define the integer parser
-fn parse_integer(input: &str) -> IResult<&str, CsvValue, VerboseError<&str>> {
-    context(
-        "Integer",
-        map_res(digit1, |s: &str| s.parse::<i64>().map(CsvValue::Integer))
-    )(input)
-}
-
 // Define the string parser
-fn parse_string(input: &str) -> IResult<&str, CsvValue, VerboseError<&str>> {
+fn parse_string(input: &str) -> IResult<&str, Value, VerboseError<&str>> {
     context(
         "String",
         map(
-            delimited(
-                char('\"'),
-                escaped(none_of("\""), '\\', char('\"')),
-                char('\"'),
+            terminated(
+                alt((
+                    delimited(
+                        char('\"'),
+                        escaped(none_of("\""), '\\', char('\"')),
+                        char('\"'),
+                    ),
+                    map(tag("\"\""), |_| ""),
+                )),
+                alt((tag(","), peek(tag(";")), peek(line_ending))),
             ),
-            |s: &str| CsvValue::String(s.to_string()),
+            |s: &str| Value::String(s.to_string()),
         )
     )(input)
 }
 
 // Define the floating-point parser
-fn parse_float(input: &str) -> IResult<&str, CsvValue, VerboseError<&str>> {
+fn parse_float(input: &str) -> IResult<&str, Value, VerboseError<&str>> {
     context(
         "Float",
-        map_res(
-            tuple((
-                digit1,
-                tag("."),
-                digit1
-            )),
-            |(int_part, _, frac_part)| -> Result<CsvValue, std::num::ParseFloatError> {
-                println!("{}.{}", int_part, frac_part);
-                format!("{}.{}", int_part, frac_part)
-                    .parse::<f64>()
-                    .map(CsvValue::Float)
-            },
-        )
+        map(
+            terminated(
+                alt((
+                    double,
+                    map(tag("nan"), |_| f64::NAN),
+                )),
+                alt((tag(","), peek(tag(";")), peek(line_ending))),
+            ),
+            Value::Float
+        ),
     )(input)
 }
 
 // Define the hexadecimal parser
-fn parse_hex(input: &str) -> IResult<&str, CsvValue, VerboseError<&str>> {
+fn parse_hex(input: &str) -> IResult<&str, Value, VerboseError<&str>> {
     context(
         "Hex",
         map_res(
-            hex_digit1,
-            |parsed_hex: &str| -> Result<CsvValue, std::num::ParseIntError> {
-                u64::from_str_radix(parsed_hex, 16).map(CsvValue::Hex)
+            terminated(
+                hex_digit1,
+                alt((tag(","), peek(tag(";")), peek(line_ending))),
+            ),
+            |parsed_hex: &str| -> Result<Value, std::num::ParseIntError> {
+                u64::from_str_radix(parsed_hex, 16).map(Value::Hex)
             },
         ),
     )(input)
 }
 
 // Define the CSV field parser
-fn csv_field(input: &str) -> IResult<&str, CsvValue, VerboseError<&str>> {
+fn csv_field(input: &str) -> IResult<&str, Value, VerboseError<&str>> {
     context(
         "Field",
-        alt((parse_string, parse_float, parse_hex)),
+        alt((parse_string, parse_hex, parse_float)),
     )(input)
 }
 
 // Define the CSV row parser
-fn csv_row(input: &str) -> IResult<&str, Vec<CsvValue>, VerboseError<&str>> {
+fn csv_row(input: &str) -> IResult<&str, Vec<Value>, VerboseError<&str>> {
     context(
         "Row",
-        many1(delimited(tag(""), csv_field, tag(",")))
+        alt((
+            terminated(
+                many1(csv_field),
+                alt((line_ending, peek(tag(";")))),
+            ),
+            map(line_ending, |_| Vec::new()),
+        ))
     )(input)
 }
 
@@ -155,13 +158,17 @@ fn section_parser(input: &str) -> IResult<&str, Section, VerboseError<&str>> {
         "Section",
         map(
             tuple((
-                parse_section_identifier,
-                tag(","),
-                separated_list1(line_ending, csv_row),
-                tag(";"),
+                terminated(
+                    parse_section_identifier, 
+                    context(",", tag(",")),
+                ),
+                terminated(
+                    many1(csv_row), 
+                    context(";", tag(";")),
+                ),
                 many0(line_ending),
             )),
-            |(i, _, d, _, l)| {
+            |(i, d, l)| {
                 Section{identifier: i, data: d, line_endings: l.len()}
             },
         )
