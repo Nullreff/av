@@ -1,21 +1,16 @@
 use std::{
-    env,
-    fs,
-    process,
     fmt::{self, Display, Formatter},
 };
 use nom::{
     branch::alt,
     bytes::complete::{tag, escaped},
-    character::complete::{digit1, hex_digit1, line_ending, none_of, char, not_line_ending, alphanumeric1},
+    character::complete::{hex_digit1, line_ending, none_of, char, not_line_ending, alphanumeric1},
     combinator::{peek, eof, map, map_res},
-    multi::{many0, many1, separated_list0, separated_list1, many_till},
-    sequence::{terminated, delimited, tuple, self},
-    error::{convert_error, VerboseError, context, ParseError},
-    IResult, Finish, number::streaming::double, Parser, Offset, Slice,
-    lib::std::ops::RangeTo, InputTake, Compare, InputLength, InputIter,
+    multi::{many0, many1, many_till},
+    sequence::{terminated, delimited, tuple},
+    error::{VerboseError, context},
+    IResult, number::streaming::double,
 };
-use itertools::Itertools;
 
 // Define the CsvValue enum
 #[derive(Debug)]
