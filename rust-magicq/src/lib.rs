@@ -8,7 +8,7 @@ use nom::{
     character::complete::{hex_digit1, line_ending, none_of, char, not_line_ending, alphanumeric1},
     combinator::{peek, eof, map, map_res, rest},
     multi::{many0, many1, many_till},
-    sequence::{terminated, delimited, tuple},
+    sequence::{terminated, delimited, tuple, preceded},
     error::{VerboseError, context},
     IResult, number::streaming::double, Parser,
 };
@@ -25,8 +25,14 @@ impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Value::Float(fl) => {
+                // Dirty hack because MagicQ sometimes writes out both
+                // nan and -nan. Please don't ask why it needs -nan.
                 if fl.is_nan() {
-                    write!(f, "nan")
+                    write!(f, "{}", if fl.is_sign_positive() {
+                        "nan"
+                    } else {
+                        "-nan"
+                    })
                 } else {
                     write!(f, "{:.6}", fl)
                 }
@@ -159,11 +165,12 @@ impl Section {
 pub struct MagicQShowfile {
     headers: Vec<String>,
     sections: Vec<Section>,
+    line_return: String,
 }
 
 impl MagicQShowfile {
-    pub fn new(headers: Vec<String>, sections: Vec<Section>) -> Self {
-        Self { headers, sections }
+    pub fn new(headers: Vec<String>, sections: Vec<Section>, line_return: String) -> Self {
+        Self { headers, sections, line_return }
     }
 
     pub fn get_headers(&self) -> &[String] {
@@ -172,6 +179,10 @@ impl MagicQShowfile {
 
     pub fn get_sections(&self) -> &[Section] {
         &self.sections
+    }
+
+    pub fn get_line_return(&self) -> &str {
+        &self.line_return
     }
 }
 
@@ -321,19 +332,20 @@ pub fn showfile_parser(input: &str) -> IResult<&str, MagicQShowfile, VerboseErro
         "Showfile",
         map(
             tuple((
+                peek(preceded(not_line_ending, line_ending)),
                 many1(parse_header),
                 many1(line_ending),
                 many_till(section_parser, eof),
             )),
-            |(h, _, (s, _))| {
-                MagicQShowfile::new(h, s)
+            |(l, h, _, (s, _))| {
+                MagicQShowfile::new(h, s, l.to_string())
             },
         )
     )(input)
 }
 
 pub fn showfile_writer(showfile: MagicQShowfile) -> String {
-    let line_return = "\r\n";
+    let line_return = showfile.get_line_return();
     let mut sb = String::new();
 
     for header in showfile.get_headers() {

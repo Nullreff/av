@@ -41,6 +41,7 @@ pub fn generate_tests(input: TokenStream) -> TokenStream {
                 };
 
                 let written_result = showfile_writer(showfile);
+
                 assert_eq!(input, written_result);
             }
         }
