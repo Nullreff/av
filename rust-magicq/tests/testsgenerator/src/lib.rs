@@ -25,17 +25,23 @@ pub fn generate_tests(input: TokenStream) -> TokenStream {
         let file_name = file.to_string_lossy();
         let file_path = format!("{}/{}", dir_path, file_name);
 
-        let test_name = Ident::new(&format!("test{}", file_name.replace(&['/', '.', '\\', '-', ' '][..], "_")), proc_macro2::Span::call_site());
+        let safe_file_name = file_name.replace(&['/', '.', '\\', '-', ' '][..], "_");
+        let test_name = Ident::new(&format!("test{}", safe_file_name), proc_macro2::Span::call_site());
 
         quote! {
             #[test]
             fn #test_name() {
-                // Run the function on the file contents
+                // Read in a showfile, check we parsed it then write it back out
                 let input = std::fs::read_to_string(&#file_path).unwrap();
-                let result = showfile_parser(&input).finish();
-                if let Err(e) = result {
-                    panic!("Error: {}", convert_error(input.as_str(), e));
+                let parse_result = showfile_parser(&input).finish();
+
+                let showfile = match parse_result {
+                    Ok((_, parsed_string)) => parsed_string,
+                    Err(e) => panic!("Error: {}", convert_error(input.as_str(), e)),
                 };
+
+                let written_result = showfile_writer(showfile);
+                assert_eq!(input, written_result);
             }
         }
     });

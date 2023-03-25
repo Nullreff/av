@@ -14,4 +14,5 @@ path = "src/main.rs"
 [dependencies]
 itertools = "0.10.5"
 nom = "7.1.3"
+pretty_assertions = "1.3.0"
 testsgenerator = { path = "tests/testsgenerator" }

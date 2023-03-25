@@ -1,15 +1,16 @@
 use std::{
     fmt::{self, Display, Formatter},
 };
+use itertools::Itertools;
 use nom::{
     branch::alt,
     bytes::complete::{tag, escaped},
     character::complete::{hex_digit1, line_ending, none_of, char, not_line_ending, alphanumeric1},
-    combinator::{peek, eof, map, map_res},
+    combinator::{peek, eof, map, map_res, rest},
     multi::{many0, many1, many_till},
     sequence::{terminated, delimited, tuple},
     error::{VerboseError, context},
-    IResult, number::streaming::double,
+    IResult, number::streaming::double, Parser,
 };
 
 // Define the CsvValue enum
@@ -17,15 +18,25 @@ use nom::{
 pub enum Value {
     Float(f64),
     String(String),
-    Hex(u64),
+    Hex(u64, usize),
 }
 
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Float(fl) => write!(f, "{}", fl),
+            Value::Float(fl) => write!(f, "{:.6}", fl),
             Value::String(s) => write!(f, "\"{}\"", s),
-            Value::Hex(h) => write!(f, "0x{:X}", h),
+            Value::Hex(h, w) => {
+                // Dirty hack because MagicQ sometimes writes out hex values
+                // in both upper case and lower case and I don't know why.
+                // If this breaks add a test case and figure out what the new
+                // terrible hack is to keep it happy.
+                if *w == 16 { 
+                    write!(f, "{:0width$X}", h, width = w)
+                } else {
+                    write!(f, "{:0width$x}", h, width = w)
+                }
+            },
         }
     }
 }
@@ -47,7 +58,7 @@ pub enum SectionIdentifier {
 }
 
 impl SectionIdentifier {
-    fn from_string(s: &str) -> SectionIdentifier {
+    fn from_code(s: &str) -> SectionIdentifier {
         match s {
             "V" => SectionIdentifier::Version,
             "T" => SectionIdentifier::File,
@@ -63,26 +74,53 @@ impl SectionIdentifier {
             _ => SectionIdentifier::Unknown(s.to_string()),
         }
     }
+    
+    fn to_code(&self) -> &str {
+        match self {
+            SectionIdentifier::Version => "V",
+            SectionIdentifier::File => "T",
+            SectionIdentifier::Head => "P",
+            SectionIdentifier::Fixture => "L",
+            SectionIdentifier::Palette => "F",
+            SectionIdentifier::Group => "G",
+            SectionIdentifier::FX => "W",
+            SectionIdentifier::Playback => "S",
+            SectionIdentifier::CueStack => "C",
+            SectionIdentifier::ExecutePage => "M",
+            SectionIdentifier::ExecuteItem => "N",
+            SectionIdentifier::Unknown(s) => s,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct Row {
     values: Vec<Value>,
+    trailing_comma: bool,
+    trailing_newlines: usize,
 }
 
 impl Row {
-    fn new(values: Vec<Value>) -> Self {
-        Self { values }
+    fn new(values: Vec<Value>, trailing_comma: bool, trailing_newlines: usize) -> Self {
+        Self { values, trailing_comma, trailing_newlines }
     }
 
     fn get_values(&self) -> &[Value] {
         &self.values
     }
+
+    fn has_trailing_comma(&self) -> bool {
+        self.trailing_comma
+    }
+
+    fn get_trailing_newlines(&self) -> usize {
+        self.trailing_newlines
+    }
 }
 
 impl Default for Row {
     fn default() -> Self {
-        Self { values: Vec::new() }
+        Self::new(Vec::new(), false, 0)
     }
 }
 
@@ -90,12 +128,12 @@ impl Default for Row {
 pub struct  Section {
     identifier: SectionIdentifier,
     rows: Vec<Row>,
-    line_endings: usize,
+    trailing_newlines: usize,
 }
 
 impl Section {
-    pub fn new(identifier: SectionIdentifier, rows: Vec<Row>, line_endings: usize) -> Self {
-        Self { identifier, rows, line_endings }
+    pub fn new(identifier: SectionIdentifier, rows: Vec<Row>, trailing_newlines: usize) -> Self {
+        Self { identifier, rows, trailing_newlines }
     }
 
     pub fn get_identifier(&self) -> &SectionIdentifier {
@@ -106,8 +144,8 @@ impl Section {
         &self.rows
     }
 
-    pub fn get_line_endings(&self) -> usize {
-        self.line_endings
+    pub fn get_trailing_newlines(&self) -> usize {
+        self.trailing_newlines
     }
 }
 
@@ -150,17 +188,17 @@ fn parse_section_identifier(input: &str) -> IResult<&str, SectionIdentifier, Ver
         "Section Identifier",
         map(
             alphanumeric1,
-            SectionIdentifier::from_string,
+            SectionIdentifier::from_code,
         )
     )(input)
 }
 
 // Define the string parser
-fn parse_string(input: &str) -> IResult<&str, Value, VerboseError<&str>> {
+fn parse_string(input: &str) -> IResult<&str, (Value, bool), VerboseError<&str>> {
     context(
         "String",
         map(
-            terminated(
+            tuple((
                 alt((
                     delimited(
                         char('\"'),
@@ -169,51 +207,63 @@ fn parse_string(input: &str) -> IResult<&str, Value, VerboseError<&str>> {
                     ),
                     map(tag("\"\""), |_| ""),
                 )),
-                alt((tag(","), peek(tag(";")), peek(line_ending))),
-            ),
-            |s: &str| Value::String(s.to_string()),
+                alt((
+                    map(tag(","), |_| true),
+                    map(peek(tag(";")), |_| false),
+                    map(peek(line_ending), |_| false),
+                )),
+            )),
+            |(s, c)| (Value::String(s.to_string()), c),
         )
     )(input)
 }
 
 // Define the floating-point parser
-fn parse_float(input: &str) -> IResult<&str, Value, VerboseError<&str>> {
+fn parse_float(input: &str) -> IResult<&str, (Value, bool), VerboseError<&str>> {
     context(
         "Float",
         map(
-            terminated(
+            tuple((
                 alt((
                     double,
                     map(tag("nan"), |_| f64::NAN),
                 )),
-                alt((tag(","), peek(tag(";")), peek(line_ending))),
-            ),
-            Value::Float
+                alt((
+                    map(tag(","), |_| true),
+                    map(peek(tag(";")), |_| false),
+                    map(peek(line_ending), |_| false),
+                )),
+            )),
+            |(f, c)| (Value::Float(f), c)
         ),
     )(input)
 }
 
 // Define the hexadecimal parser
-fn parse_hex(input: &str) -> IResult<&str, Value, VerboseError<&str>> {
+fn parse_hex(input: &str) -> IResult<&str, (Value, bool), VerboseError<&str>> {
     context(
         "Hex",
         map_res(
-            terminated(
-                hex_digit1,
-                alt((tag(","), peek(tag(";")), peek(line_ending))),
-            ),
-            |parsed_hex: &str| -> Result<Value, std::num::ParseIntError> {
-                u64::from_str_radix(parsed_hex, 16).map(Value::Hex)
+            tuple((
+                hex_digit1.and(peek(rest.map(|r: &str| input.len() - r.len()))),
+                alt((
+                    map(tag(","), |_| true),
+                    map(peek(tag(";")), |_| false),
+                    map(peek(line_ending), |_| false),
+                )),
+            )),
+            |((h, l), c)| {
+                u64::from_str_radix(h, 16).map(|v| (Value::Hex(v, l), c))
             },
         ),
     )(input)
 }
 
 // Define the CSV field parser
-fn csv_field(input: &str) -> IResult<&str, Value, VerboseError<&str>> {
+fn csv_field(input: &str) -> IResult<&str, (Value, bool), VerboseError<&str>> {
     context(
         "Field",
-        alt((parse_string, parse_hex, parse_float)),
+        alt((parse_string, parse_hex, parse_float, )),
     )(input)
 }
 
@@ -221,16 +271,20 @@ fn csv_field(input: &str) -> IResult<&str, Value, VerboseError<&str>> {
 fn csv_row(input: &str) -> IResult<&str, Row, VerboseError<&str>> {
     context(
         "Row",
-        alt((
-            map(
-                terminated(
-                    many1(csv_field),
-                    alt((line_ending, peek(tag(";")))),
-                ),
-                |r| Row::new(r)
-            ),
-            map(line_ending, |_| Row::default()),
-        ))
+        map(
+            tuple((
+                many1(csv_field),
+                alt((
+                    map(many1(line_ending), |l| l.len()),
+                    map(peek(tag(";")), |_| 0),
+                )),
+            )),
+            |(r, n)| {
+                let comma = r.last().map(|t| t.1).unwrap_or(false);
+                let values = r.into_iter().map(|t| t.0).collect_vec();
+                Row::new(values, comma, n)
+            },
+        ),
     )(input)
 }
 
@@ -269,4 +323,42 @@ pub fn showfile_parser(input: &str) -> IResult<&str, MagicQShowfile, VerboseErro
             },
         )
     )(input)
+}
+
+pub fn showfile_writer(showfile: MagicQShowfile) -> String {
+    let line_return = "\r\n";
+    let mut sb = String::new();
+
+    for header in showfile.get_headers() {
+        sb.push_str(format!("\\ {}{}", header, line_return).as_str());
+    }
+
+    sb.push_str(line_return);
+
+    for section in showfile.get_sections() {
+        sb.push_str(section.get_identifier().to_code());
+        sb.push(',');
+
+        for row in section.get_rows() {
+            for value in row.get_values() {
+                sb.push_str(format!("{}", value).as_str());
+                sb.push(',');
+            }
+
+            if !row.has_trailing_comma() {
+                sb.pop();
+            }
+
+            for _ in 0..row.get_trailing_newlines() {
+                sb.push_str(line_return);
+            }
+        }
+
+        sb.push(';');
+        for _ in 0..section.get_trailing_newlines() {
+            sb.push_str(line_return);
+        }
+    }
+
+    sb
 }
