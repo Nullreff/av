@@ -1,6 +1,6 @@
 use proc_macro::{TokenStream};
-use quote::{quote, quote_spanned};
-use syn::{parse_macro_input, spanned::Spanned, Ident, Lit, Meta, MetaNameValue, LitStr};
+use quote::{quote};
+use syn::{parse_macro_input, Ident, LitStr};
 use walkdir::WalkDir;
 
 #[proc_macro]

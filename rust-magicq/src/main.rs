@@ -26,11 +26,10 @@ fn main() {
             process::exit(1);
         }
     };
-    //let input = "A,\"Hello world\",0001,0.05,;";
 
     let result = showfile_parser(&input).finish();
     let showfile = match result {
-        Ok((rem, parsed_string)) => parsed_string,
+        Ok((_, parsed_string)) => parsed_string,
         Err(e) => {
             eprintln!("Error: {}", convert_error(input.as_str(), e));
             process::exit(1);
@@ -41,6 +40,7 @@ fn main() {
         *acc.entry(item.get_identifier()).or_insert(0) += 1;
         acc
     });
+
     for counts in res {
         println!("{:?}", counts);
     }
