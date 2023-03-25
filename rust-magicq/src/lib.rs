@@ -24,7 +24,13 @@ pub enum Value {
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Float(fl) => write!(f, "{:.6}", fl),
+            Value::Float(fl) => {
+                if fl.is_nan() {
+                    write!(f, "nan")
+                } else {
+                    write!(f, "{:.6}", fl)
+                }
+            },
             Value::String(s) => write!(f, "\"{}\"", s),
             Value::Hex(h, w) => {
                 // Dirty hack because MagicQ sometimes writes out hex values
