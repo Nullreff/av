@@ -233,6 +233,7 @@ fn parse_float(input: &str) -> IResult<&str, (Value, bool), VerboseError<&str>> 
                 alt((
                     double,
                     map(tag("nan"), |_| f64::NAN),
+                    map(tag("-nan"), |_| -f64::NAN),
                 )),
                 alt((
                     map(tag(","), |_| true),
