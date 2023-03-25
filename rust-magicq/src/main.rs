@@ -15,6 +15,7 @@ use nom::{
     IResult, Finish, number::streaming::double, Parser, Offset, Slice,
     lib::std::ops::RangeTo, InputTake, Compare, InputLength, InputIter,
 };
+use itertools::Itertools;
 
 // Define the CsvValue enum
 #[derive(Debug)]
@@ -34,9 +35,39 @@ impl Display for Value {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 enum SectionIdentifier {
+    Version,
+    File,
+    Head,
+    Fixture,
+    Palette,
+    Group,
+    FX,
+    Playback,
+    CueStack,
+    ExecutePage,
+    ExecuteItem,
     Unknown(String)
+}
+
+impl SectionIdentifier {
+    fn parse(s: &str) -> SectionIdentifier {
+        match s {
+            "V" => SectionIdentifier::Version,
+            "T" => SectionIdentifier::File,
+            "P" => SectionIdentifier::Head,
+            "L" => SectionIdentifier::Fixture,
+            "F" => SectionIdentifier::Palette,
+            "G" => SectionIdentifier::Group,
+            "W" => SectionIdentifier::FX,
+            "S" => SectionIdentifier::Playback,
+            "C" => SectionIdentifier::CueStack,
+            "M" => SectionIdentifier::ExecutePage,
+            "N" => SectionIdentifier::ExecuteItem,
+            _ => SectionIdentifier::Unknown(s.to_string()),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -71,7 +102,7 @@ fn parse_section_identifier(input: &str) -> IResult<&str, SectionIdentifier, Ver
         "Section Identifier",
         map(
             alphanumeric1,
-            |s: &str| SectionIdentifier::Unknown(s.to_string()),
+            SectionIdentifier::parse,
         )
     )(input)
 }
@@ -210,13 +241,17 @@ fn main() {
     //let input = "A,\"Hello world\",0001,0.05,;";
 
     let result = showfile_parser(&input).finish();
-    match result {
-        Ok((rem, parsed_string)) => {
-            println!("Parsed string: {:?}", parsed_string);
-            println!("Remaining: {}", rem.len());
-        },
+    let showfile = match result {
+        Ok((rem, parsed_string)) => parsed_string,
         Err(e) => {
             eprintln!("Error: {}", convert_error(input.as_str(), e));
+            process::exit(1);
         }
+    };
+
+    let res = showfile.sections.into_iter().unique_by(|s| s.identifier.clone());
+    for section in res {
+        println!("{:?}", section.identifier);
     }
+
 }
