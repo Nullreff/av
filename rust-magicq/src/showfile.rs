@@ -1,6 +1,7 @@
 use std::{
     fmt::{self, Display, Formatter},
 };
+use std::str::FromStr;
 use itertools::Itertools;
 use nom::{
     branch::alt,
@@ -14,10 +15,113 @@ use nom::{
 };
 
 #[derive(Debug)]
+pub struct Header(String);
+
+impl Header {
+    pub fn new(value: &str) -> Header {
+        Header(value.to_string())
+    }
+
+    pub fn parse(input: &str) -> IResult<&str, Header, VerboseError<&str>> {
+        context(
+            "Parsing Header", 
+            map(
+                delimited(
+                    tag("\\ "),
+                    not_line_ending,
+                    line_ending,
+                ),
+                Header::new,
+            ),
+        )(input)
+    }
+}
+
+impl Display for Header {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Header(value) = self;
+        write!(f, "{}", value)
+    }
+}
+
+#[derive(Debug)]
 pub enum Value {
     Float(f64),
     String(String),
     Hex(u64, usize),
+}
+
+impl Value {
+    fn parse_string(input: &str) -> IResult<&str, (Value, bool), VerboseError<&str>> {
+        context(
+            "String",
+            map(
+                tuple((
+                    alt((
+                        delimited(
+                            char('\"'),
+                            escaped(none_of("\""), '\\', char('\"')),
+                            char('\"'),
+                        ),
+                        map(tag("\"\""), |_| ""),
+                    )),
+                    alt((
+                        map(tag(","), |_| true),
+                        map(peek(tag(";")), |_| false),
+                        map(peek(line_ending), |_| false),
+                    )),
+                )),
+                |(s, c)| (Value::String(s.to_string()), c),
+            )
+        )(input)
+    }
+
+    fn parse_float(input: &str) -> IResult<&str, (Value, bool), VerboseError<&str>> {
+        context(
+            "Float",
+            map(
+                tuple((
+                    alt((
+                        double,
+                        map(tag("nan"), |_| f64::NAN),
+                        map(tag("-nan"), |_| -f64::NAN),
+                    )),
+                    alt((
+                        map(tag(","), |_| true),
+                        map(peek(tag(";")), |_| false),
+                        map(peek(line_ending), |_| false),
+                    )),
+                )),
+                |(f, c)| (Value::Float(f), c)
+            ),
+        )(input)
+    }
+
+    fn parse_hex(input: &str) -> IResult<&str, (Value, bool), VerboseError<&str>> {
+        context(
+            "Hex",
+            map_res(
+                tuple((
+                    hex_digit1.and(peek(rest.map(|r: &str| input.len() - r.len()))),
+                    alt((
+                        map(tag(","), |_| true),
+                        map(peek(tag(";")), |_| false),
+                        map(peek(line_ending), |_| false),
+                    )),
+                )),
+                |((h, l), c)| {
+                    u64::from_str_radix(h, 16).map(|v| (Value::Hex(v, l), c))
+                },
+            ),
+        )(input)
+}
+
+    pub fn parse(input: &str) -> IResult<&str, (Value, bool), VerboseError<&str>> {
+        context(
+            "Field",
+            alt((Self::parse_string, Self::parse_hex, Self::parse_float)),
+        )(input)
+    }
 }
 
 impl Display for Value {
@@ -69,7 +173,7 @@ pub enum SectionIdentifier {
 }
 
 impl SectionIdentifier {
-    fn from_code(s: &str) -> SectionIdentifier {
+    pub fn from_code(s: &str) -> SectionIdentifier {
         match s {
             "V" => SectionIdentifier::Version,
             "T" => SectionIdentifier::File,
@@ -86,7 +190,7 @@ impl SectionIdentifier {
         }
     }
     
-    fn to_code(&self) -> &str {
+    pub fn to_code(&self) -> &str {
         match self {
             SectionIdentifier::Version => "V",
             SectionIdentifier::File => "T",
@@ -102,6 +206,16 @@ impl SectionIdentifier {
             SectionIdentifier::Unknown(s) => s,
         }
     }
+
+    fn parse(input: &str) -> IResult<&str, SectionIdentifier, VerboseError<&str>> {
+        context(
+            "Section Identifier",
+            map(
+                alphanumeric1,
+                SectionIdentifier::from_code,
+            )
+        )(input)
+    }
 }
 
 #[derive(Debug)]
@@ -114,6 +228,26 @@ pub struct Row {
 impl Row {
     fn new(values: Vec<Value>, trailing_comma: bool, trailing_newlines: usize) -> Self {
         Self { values, trailing_comma, trailing_newlines }
+    }
+
+    fn parse(input: &str) -> IResult<&str, Row, VerboseError<&str>> {
+        context(
+            "Row",
+            map(
+                tuple((
+                    many1(Value::parse),
+                    alt((
+                        map(many1(line_ending), |l| l.len()),
+                        map(peek(tag(";")), |_| 0),
+                    )),
+                )),
+                |(r, n)| {
+                    let comma = r.last().map(|t| t.1).unwrap_or(false);
+                    let values = r.into_iter().map(|t| t.0).collect_vec();
+                    Row::new(values, comma, n)
+                },
+            ),
+        )(input)
     }
 
     fn get_values(&self) -> &[Value] {
@@ -147,6 +281,26 @@ impl Section {
         Self { identifier, rows, trailing_newlines }
     }
 
+    pub fn parse(input: &str) -> IResult<&str, Section, VerboseError<&str>> {
+        context(
+            "Section",
+            map(
+                tuple((
+                    terminated(
+                        SectionIdentifier::parse, 
+                        context(",", tag(",")),
+                    ),
+                    terminated(
+                        many1(Row::parse), 
+                        context(";", tag(";")),
+                    ),
+                    map(many0(line_ending), |v| v.len()),
+                )),
+                |(i, r, s)| Section::new(i, r, s),
+            ),
+        )(input)
+    }
+
     pub fn get_identifier(&self) -> &SectionIdentifier {
         &self.identifier
     }
@@ -162,17 +316,34 @@ impl Section {
 
 #[derive(Debug)]
 pub struct Showfile {
-    headers: Vec<String>,
+    headers: Vec<Header>,
     sections: Vec<Section>,
     line_return: String,
 }
 
 impl Showfile {
-    pub fn new(headers: Vec<String>, sections: Vec<Section>, line_return: String) -> Self {
+    pub fn new(headers: Vec<Header>, sections: Vec<Section>, line_return: String) -> Self {
         Self { headers, sections, line_return }
     }
 
-    pub fn get_headers(&self) -> &[String] {
+    pub fn parse(input: &str) -> IResult<&str, Showfile, VerboseError<&str>> {
+        context(
+            "Showfile",
+            map(
+                tuple((
+                    peek(preceded(not_line_ending, line_ending)),
+                    many1(Header::parse),
+                    many1(line_ending),
+                    many_till(Section::parse, eof),
+                )),
+                |(l, h, _, (s, _))| {
+                    Showfile::new(h, s, l.to_string())
+                },
+            )
+        )(input)
+    }
+
+    pub fn get_headers(&self) -> &[Header] {
         &self.headers
     }
 
@@ -185,213 +356,48 @@ impl Showfile {
     }
 }
 
+impl FromStr for Showfile {
+    type Err = String;
 
-fn parse_header(input: &str) -> IResult<&str, String, VerboseError<&str>> {
-    context(
-        "Parsing Header", 
-        map(
-            delimited(
-                tag("\\ "),
-                not_line_ending,
-                line_ending,
-            ),
-            |s: &str| s.to_string(),
-        ),
-    )(input)
-}
-
-fn parse_section_identifier(input: &str) -> IResult<&str, SectionIdentifier, VerboseError<&str>> {
-    context(
-        "Section Identifier",
-        map(
-            alphanumeric1,
-            SectionIdentifier::from_code,
-        )
-    )(input)
-}
-
-// Define the string parser
-fn parse_string(input: &str) -> IResult<&str, (Value, bool), VerboseError<&str>> {
-    context(
-        "String",
-        map(
-            tuple((
-                alt((
-                    delimited(
-                        char('\"'),
-                        escaped(none_of("\""), '\\', char('\"')),
-                        char('\"'),
-                    ),
-                    map(tag("\"\""), |_| ""),
-                )),
-                alt((
-                    map(tag(","), |_| true),
-                    map(peek(tag(";")), |_| false),
-                    map(peek(line_ending), |_| false),
-                )),
-            )),
-            |(s, c)| (Value::String(s.to_string()), c),
-        )
-    )(input)
-}
-
-// Define the floating-point parser
-fn parse_float(input: &str) -> IResult<&str, (Value, bool), VerboseError<&str>> {
-    context(
-        "Float",
-        map(
-            tuple((
-                alt((
-                    double,
-                    map(tag("nan"), |_| f64::NAN),
-                    map(tag("-nan"), |_| -f64::NAN),
-                )),
-                alt((
-                    map(tag(","), |_| true),
-                    map(peek(tag(";")), |_| false),
-                    map(peek(line_ending), |_| false),
-                )),
-            )),
-            |(f, c)| (Value::Float(f), c)
-        ),
-    )(input)
-}
-
-// Define the hexadecimal parser
-fn parse_hex(input: &str) -> IResult<&str, (Value, bool), VerboseError<&str>> {
-    context(
-        "Hex",
-        map_res(
-            tuple((
-                hex_digit1.and(peek(rest.map(|r: &str| input.len() - r.len()))),
-                alt((
-                    map(tag(","), |_| true),
-                    map(peek(tag(";")), |_| false),
-                    map(peek(line_ending), |_| false),
-                )),
-            )),
-            |((h, l), c)| {
-                u64::from_str_radix(h, 16).map(|v| (Value::Hex(v, l), c))
-            },
-        ),
-    )(input)
-}
-
-// Define the CSV field parser
-fn csv_field(input: &str) -> IResult<&str, (Value, bool), VerboseError<&str>> {
-    context(
-        "Field",
-        alt((parse_string, parse_hex, parse_float, )),
-    )(input)
-}
-
-// Define the CSV row parser
-fn csv_row(input: &str) -> IResult<&str, Row, VerboseError<&str>> {
-    context(
-        "Row",
-        map(
-            tuple((
-                many1(csv_field),
-                alt((
-                    map(many1(line_ending), |l| l.len()),
-                    map(peek(tag(";")), |_| 0),
-                )),
-            )),
-            |(r, n)| {
-                let comma = r.last().map(|t| t.1).unwrap_or(false);
-                let values = r.into_iter().map(|t| t.0).collect_vec();
-                Row::new(values, comma, n)
-            },
-        ),
-    )(input)
-}
-
-// Define the section parser
-fn section_parser(input: &str) -> IResult<&str, Section, VerboseError<&str>> {
-    context(
-        "Section",
-        map(
-            tuple((
-                terminated(
-                    parse_section_identifier, 
-                    context(",", tag(",")),
-                ),
-                terminated(
-                    many1(csv_row), 
-                    context(";", tag(";")),
-                ),
-                map(many0(line_ending), |v| v.len()),
-            )),
-            |(i, r, s)| Section::new(i, r, s),
-        ),
-    )(input)
-}
-
-fn showfile_parser(input: &str) -> IResult<&str, Showfile, VerboseError<&str>> {
-    context(
-        "Showfile",
-        map(
-            tuple((
-                peek(preceded(not_line_ending, line_ending)),
-                many1(parse_header),
-                many1(line_ending),
-                many_till(section_parser, eof),
-            )),
-            |(l, h, _, (s, _))| {
-                Showfile::new(h, s, l.to_string())
-            },
-        )
-    )(input)
-}
-
-fn showfile_writer(showfile: &Showfile) -> String {
-    let line_return = showfile.get_line_return();
-    let mut sb = String::new();
-
-    for header in showfile.get_headers() {
-        sb.push_str(format!("\\ {}{}", header, line_return).as_str());
-    }
-
-    sb.push_str(line_return);
-
-    for section in showfile.get_sections() {
-        sb.push_str(section.get_identifier().to_code());
-        sb.push(',');
-
-        for row in section.get_rows() {
-            for value in row.get_values() {
-                sb.push_str(format!("{}", value).as_str());
-                sb.push(',');
-            }
-
-            if !row.has_trailing_comma() {
-                sb.pop();
-            }
-
-            for _ in 0..row.get_trailing_newlines() {
-                sb.push_str(line_return);
-            }
-        }
-
-        sb.push(';');
-        for _ in 0..section.get_trailing_newlines() {
-            sb.push_str(line_return);
-        }
-    }
-
-    sb
-}
-
-impl Showfile {
-    pub fn parse(input: &str) -> Result<Showfile, String> {
-        let result = showfile_parser(input).finish();
+    fn from_str(input: &str) -> Result<Showfile, String> {
+        let result = Self::parse(input).finish();
         match result {
             Ok((_, s)) => Ok(s),
             Err(e) => Err(convert_error(input, e)),
         }
     }
+}
 
-    pub fn write(&self) -> String {
-        showfile_writer(self)
+impl Display for Showfile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let line_return = self.get_line_return();
+
+        for header in self.get_headers() {
+            write!(f, "\\ {}{}", header, line_return)?;
+        }
+
+        write!(f, "{}", line_return)?;
+
+        for section in self.get_sections() {
+            write!(f, "{},", section.get_identifier().to_code())?;
+
+            for row in section.get_rows() {
+                let values = row.get_values();
+                let last_index = values.len() - 1;
+                for (i, value) in values.iter().enumerate() {
+                    let has_comma = i != last_index || row.has_trailing_comma();
+                    write!(f, "{}{}", value, if has_comma {","} else {""})?;
+                }
+
+                for _ in 0..row.get_trailing_newlines() {
+                    write!(f, "{}", line_return)?;
+                }
+            }
+
+            write!(f, ";")?;
+            write!(f, "{}", line_return.repeat(section.get_trailing_newlines()))?;
+        }
+
+        Ok(())
     }
 }

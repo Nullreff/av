@@ -1,4 +1,5 @@
 use testsgenerator::generate_tests;
+use std::str::FromStr;
 use magicq::Showfile;
 use similar_asserts::assert_eq;
 

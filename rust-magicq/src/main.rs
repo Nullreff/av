@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::{
     env,
     fs,
@@ -23,7 +24,7 @@ fn main() {
         }
     };
 
-    let showfile = Showfile::parse(&input).unwrap_or_else(|e| {
+    let showfile = Showfile::from_str(&input).unwrap_or_else(|e| {
         eprintln!("Error: {}", e);
         process::exit(1);
     });

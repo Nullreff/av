@@ -34,11 +34,11 @@ pub fn generate_tests(input: TokenStream) -> TokenStream {
                 // Read in a showfile, check we parsed it then write it back out
                 let input = std::fs::read_to_string(&#file_path).unwrap();
 
-                let showfile = Showfile::parse(&input).unwrap_or_else(|e|
+                let showfile = Showfile::from_str(&input).unwrap_or_else(|e|
                     panic!("\n{}", e)
                 );
 
-                let result = showfile.write();
+                let result = showfile.to_string();
 
                 assert_eq!(input, result);
             }
