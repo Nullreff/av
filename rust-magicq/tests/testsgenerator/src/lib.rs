@@ -40,7 +40,7 @@ pub fn generate_tests(input: TokenStream) -> TokenStream {
 
                 let result = showfile.to_string();
 
-                assert_eq!(input, result);
+                assert_eq!(input.replace("\r\n", "\n"), result.replace("\r\n", "\n"));
             }
         }
     });

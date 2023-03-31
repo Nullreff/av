@@ -9,10 +9,12 @@ use nom::{
     character::complete::{hex_digit1, line_ending, none_of, char, not_line_ending, alphanumeric1},
     combinator::{peek, eof, map, map_res, rest},
     multi::{many0, many1, many_till},
-    sequence::{terminated, delimited, tuple, preceded},
+    sequence::{terminated, delimited, tuple},
     error::{VerboseError, context, convert_error},
     IResult, number::streaming::double, Parser, Finish,
 };
+
+static LINE_RETURN: &str = "\n";
 
 #[derive(Debug)]
 pub struct Header(String);
@@ -40,7 +42,7 @@ impl Header {
 impl Display for Header {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Header(value) = self;
-        write!(f, "{}", value)
+        write!(f, "\\ {}{}", value, LINE_RETURN)
     }
 }
 
@@ -269,6 +271,22 @@ impl Default for Row {
     }
 }
 
+impl Display for Row {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let values = self.get_values();
+        let last_index = values.len() - 1;
+
+        for (i, value) in values.iter().enumerate() {
+            let has_comma = i != last_index || self.has_trailing_comma();
+            write!(f, "{}{}", value, if has_comma {","} else {""})?;
+        }
+
+        write!(f, "{}", LINE_RETURN.repeat(self.get_trailing_newlines()))?;
+
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub struct  Section {
     identifier: SectionIdentifier,
@@ -314,16 +332,30 @@ impl Section {
     }
 }
 
+impl Display for Section {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{},", self.get_identifier().to_code())?;
+
+        for row in self.get_rows() {
+            write!(f, "{}", row)?;
+        }
+
+        write!(f, ";")?;
+        write!(f, "{}", LINE_RETURN.repeat(self.get_trailing_newlines()))?;
+
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub struct Showfile {
     headers: Vec<Header>,
     sections: Vec<Section>,
-    line_return: String,
 }
 
 impl Showfile {
-    pub fn new(headers: Vec<Header>, sections: Vec<Section>, line_return: String) -> Self {
-        Self { headers, sections, line_return }
+    pub fn new(headers: Vec<Header>, sections: Vec<Section>) -> Self {
+        Self { headers, sections }
     }
 
     pub fn parse(input: &str) -> IResult<&str, Showfile, VerboseError<&str>> {
@@ -331,13 +363,12 @@ impl Showfile {
             "Showfile",
             map(
                 tuple((
-                    peek(preceded(not_line_ending, line_ending)),
                     many1(Header::parse),
                     many1(line_ending),
                     many_till(Section::parse, eof),
                 )),
-                |(l, h, _, (s, _))| {
-                    Showfile::new(h, s, l.to_string())
+                |(h, _, (s, _))| {
+                    Showfile::new(h, s)
                 },
             )
         )(input)
@@ -349,10 +380,6 @@ impl Showfile {
 
     pub fn get_sections(&self) -> &[Section] {
         &self.sections
-    }
-
-    pub fn get_line_return(&self) -> &str {
-        &self.line_return
     }
 }
 
@@ -370,32 +397,14 @@ impl FromStr for Showfile {
 
 impl Display for Showfile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let line_return = self.get_line_return();
-
         for header in self.get_headers() {
-            write!(f, "\\ {}{}", header, line_return)?;
+            write!(f, "{}", header)?;
         }
 
-        write!(f, "{}", line_return)?;
+        write!(f, "{}", LINE_RETURN)?;
 
         for section in self.get_sections() {
-            write!(f, "{},", section.get_identifier().to_code())?;
-
-            for row in section.get_rows() {
-                let values = row.get_values();
-                let last_index = values.len() - 1;
-                for (i, value) in values.iter().enumerate() {
-                    let has_comma = i != last_index || row.has_trailing_comma();
-                    write!(f, "{}{}", value, if has_comma {","} else {""})?;
-                }
-
-                for _ in 0..row.get_trailing_newlines() {
-                    write!(f, "{}", line_return)?;
-                }
-            }
-
-            write!(f, ";")?;
-            write!(f, "{}", line_return.repeat(section.get_trailing_newlines()))?;
+            write!(f, "{}", section)?;
         }
 
         Ok(())
