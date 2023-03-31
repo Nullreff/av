@@ -1,7 +1,8 @@
 use std::{
     fmt::{self, Display, Formatter},
+    ops::{Index, IndexMut},
+    str::FromStr,
 };
-use std::str::FromStr;
 use itertools::Itertools;
 use nom::{
     branch::alt,
@@ -252,16 +253,35 @@ impl Row {
         )(input)
     }
 
-    pub fn get_values(&self) -> &[Value] {
-        &self.values
-    }
-
     pub fn has_trailing_comma(&self) -> bool {
         self.trailing_comma
     }
 
     pub fn get_trailing_newlines(&self) -> usize {
         self.trailing_newlines
+    }
+}
+
+impl<'a> IntoIterator for &'a Row {
+    type Item = &'a Value;
+    type IntoIter = std::slice::Iter<'a, Value>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.values.iter()
+    }
+}
+
+impl Index<usize> for Row {
+    type Output = Value;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.values[index]
+    }
+}
+
+impl IndexMut<usize> for Row {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.values[index]
     }
 }
 
@@ -273,10 +293,9 @@ impl Default for Row {
 
 impl Display for Row {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let values = self.get_values();
-        let last_index = values.len() - 1;
+        let last_index = self.values.len() - 1;
 
-        for (i, value) in values.iter().enumerate() {
+        for (i, value) in self.values.iter().enumerate() {
             let has_comma = i != last_index || self.has_trailing_comma();
             write!(f, "{}{}", value, if has_comma {","} else {""})?;
         }
@@ -323,12 +342,31 @@ impl Section {
         &self.identifier
     }
 
-    pub fn get_rows(&self) -> &[Row] {
-        &self.rows
-    }
-
     pub fn get_trailing_newlines(&self) -> usize {
         self.trailing_newlines
+    }
+}
+
+impl<'a> IntoIterator for &'a Section {
+    type Item = &'a Row;
+    type IntoIter = std::slice::Iter<'a, Row>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.rows.iter()
+    }
+}
+
+impl Index<usize> for Section {
+    type Output = Row;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.rows[index]
+    }
+}
+
+impl IndexMut<usize> for Section {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.rows[index]
     }
 }
 
@@ -336,7 +374,7 @@ impl Display for Section {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{},", self.get_identifier().to_code())?;
 
-        for row in self.get_rows() {
+        for row in self.rows.iter() {
             write!(f, "{}", row)?;
         }
 

@@ -37,7 +37,7 @@ fn main() {
     // Print a list of CueStacks
     let cuestacks = showfile.get_sections().iter()
         .filter(|section| section.get_identifier() == &SectionIdentifier::CueStack)
-        .map(|section| section.get_rows()[0].get_values()[1].to_string());
+        .map(|section| section[0][1].to_string());
     for cuestack in cuestacks {
         println!("{}", cuestack);
     }
