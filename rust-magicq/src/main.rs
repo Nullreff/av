@@ -5,7 +5,7 @@ use std::{
     process,
 };
 use std::collections::HashMap;
-use magicq::Showfile;
+use magicq::{Showfile, SectionIdentifier};
 
 fn main() {
      let args: Vec<String> = env::args().collect();
@@ -33,6 +33,14 @@ fn main() {
         *acc.entry(item.get_identifier()).or_insert(0) += 1;
         acc
     });
+
+    // Print a list of CueStacks
+    let cuestacks = showfile.get_sections().iter()
+        .filter(|section| section.get_identifier() == &SectionIdentifier::CueStack)
+        .map(|section| section.get_rows()[0].get_values()[1].to_string());
+    for cuestack in cuestacks {
+        println!("{}", cuestack);
+    }
 
     for counts in res {
         println!("{:?}", counts);

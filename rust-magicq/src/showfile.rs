@@ -252,15 +252,15 @@ impl Row {
         )(input)
     }
 
-    fn get_values(&self) -> &[Value] {
+    pub fn get_values(&self) -> &[Value] {
         &self.values
     }
 
-    fn has_trailing_comma(&self) -> bool {
+    pub fn has_trailing_comma(&self) -> bool {
         self.trailing_comma
     }
 
-    fn get_trailing_newlines(&self) -> usize {
+    pub fn get_trailing_newlines(&self) -> usize {
         self.trailing_newlines
     }
 }
