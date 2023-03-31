@@ -162,7 +162,7 @@ impl Display for Value {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum SectionIdentifier {
     Version,
-    File,
+    Settings,
     Head,
     Fixture,
     Palette,
@@ -179,7 +179,7 @@ impl SectionIdentifier {
     pub fn from_code(s: &str) -> SectionIdentifier {
         match s {
             "V" => SectionIdentifier::Version,
-            "T" => SectionIdentifier::File,
+            "T" => SectionIdentifier::Settings,
             "P" => SectionIdentifier::Head,
             "L" => SectionIdentifier::Fixture,
             "F" => SectionIdentifier::Palette,
@@ -189,14 +189,23 @@ impl SectionIdentifier {
             "C" => SectionIdentifier::CueStack,
             "M" => SectionIdentifier::ExecutePage,
             "N" => SectionIdentifier::ExecuteItem,
-            _ => SectionIdentifier::Unknown(s.to_string()),
+            //"r" => SectionIdentifier::Unknown("r"),
+            //"Q" => SectionIdentifier::Unknown("Q"),
+            //"R" => SectionIdentifier::Unknown("R"),
+            //"Z" => SectionIdentifier::Unknown("Z"),
+            //"J" => SectionIdentifier::Unknown("J"),
+            //"u" => SectionIdentifier::Unknown("u"),
+            //"H" => SectionIdentifier::Unknown("H"),
+            //"E1" => SectionIdentifier::Unknown("E1"),
+            //"Y" => SectionIdentifier::Unknown("Y"),
+            _ => SectionIdentifier::Unknown(i.to_string()),
         }
     }
     
     pub fn to_code(&self) -> &str {
         match self {
             SectionIdentifier::Version => "V",
-            SectionIdentifier::File => "T",
+            SectionIdentifier::Settings => "T",
             SectionIdentifier::Head => "P",
             SectionIdentifier::Fixture => "L",
             SectionIdentifier::Palette => "F",
@@ -206,6 +215,15 @@ impl SectionIdentifier {
             SectionIdentifier::CueStack => "C",
             SectionIdentifier::ExecutePage => "M",
             SectionIdentifier::ExecuteItem => "N",
+            //SectionIdentifier::Unknown("r") => "r",
+            //SectionIdentifier::Unknown("Q") => "Q",
+            //SectionIdentifier::Unknown("R") => "R",
+            //SectionIdentifier::Unknown("Z") => "Z",
+            //SectionIdentifier::Unknown("J") => "J",
+            //SectionIdentifier::Unknown("u") => "u",
+            //SectionIdentifier::Unknown("H") => "H",
+            //SectionIdentifier::Unknown("E1") => "E1",
+            //SectionIdentifier::Unknown("Y") => "Y",
             SectionIdentifier::Unknown(s) => s,
         }
     }
