@@ -1,6 +1,6 @@
 # Rust MagicQ
 
-`rust-magicq` is a Rust library for reading and writing MagicQ showfiles. MagicQ is a lighting control software used for programming and controlling lighting fixtures and effects in the entertainment industry.
+`rust-magicq` is a Rust library for reading and writing MagicQ showfiles. [MagicQ](https://chamsyslighting.com/products/magicq) is a lighting control software used for programming and controlling lighting fixtures and effects in the entertainment industry.
 
 ## Usage
 
