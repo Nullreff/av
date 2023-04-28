@@ -12,6 +12,7 @@ name = "magicq-generator"
 path = "src/main.rs"
 
 [dependencies]
+iced = "0.8.0"
 itertools = "0.10.5"
 nom = "7.1.3"
 

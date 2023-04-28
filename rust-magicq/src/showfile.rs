@@ -178,7 +178,7 @@ pub enum SectionIdentifier {
 impl SectionIdentifier {
     pub fn from_code(s: &str) -> SectionIdentifier {
         match s {
-            "V" => SectionIdentifier::Version,
+            Version::IDENTIFIER => SectionIdentifier::Version,
             "T" => SectionIdentifier::Settings,
             "P" => SectionIdentifier::Head,
             "L" => SectionIdentifier::Fixture,
@@ -198,13 +198,13 @@ impl SectionIdentifier {
             //"H" => SectionIdentifier::Unknown("H"),
             //"E1" => SectionIdentifier::Unknown("E1"),
             //"Y" => SectionIdentifier::Unknown("Y"),
-            _ => SectionIdentifier::Unknown(i.to_string()),
+            _ => SectionIdentifier::Unknown(s.to_string()),
         }
     }
     
     pub fn to_code(&self) -> &str {
         match self {
-            SectionIdentifier::Version => "V",
+            SectionIdentifier::Version => Version::IDENTIFIER,
             SectionIdentifier::Settings => "T",
             SectionIdentifier::Head => "P",
             SectionIdentifier::Fixture => "L",
