@@ -3,7 +3,6 @@
 This repository is my attempt at organizing all the audio/visual work myself and others have done over the years.
 
 * `events/` - Documents, showfiles and resources from various events.
-* `rust-magicq/` - Attempt at reverse engineering the MagicQ showfile format and creating a rust library for reading/writing it.
 * `show/` - Common files used for working with MagicQ.
 
 ## Contributions
